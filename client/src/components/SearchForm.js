@@ -249,6 +249,14 @@ class SearchForm extends Component {
     return (
       <fieldset className='airlines'>
         <h2>Airlines</h2>
+        <CheckBox
+          label='Toggle all'
+          checked={searchStore.toggleAllAirlines}
+          onChange={() => {
+            searchStore.toggleAllAirlines = !searchStore.toggleAllAirlines;   
+            searchStore.airlines.map(airline => (searchStore.setAirline(airline, searchStore.toggleAllAirlines)))
+          }}
+        />
         {elements}  
       </fieldset>
     )

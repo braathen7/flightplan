@@ -25,6 +25,9 @@ export default class SearchStore {
   @observable selectedAirlines = observable.map()
   @observable selectedFlights = observable.map()
 
+  // Other UI
+  @observable toggleAllAirlines = true;
+
   // Search state
   @observable loading = false
   _results = observable.array([], {deep: false})
@@ -247,8 +250,15 @@ export default class SearchStore {
     const { selectedAirlines: sel } = this
     const key = airline.code
     const val = sel.has(key) ? !sel.get(key) : false
-    sel.set(key, val)
+    
+    this.setAirline(airline, val);
+  }
 
+  @action setAirline(airline, val) {
+    const { selectedAirlines: sel } = this
+    const key = airline.code
+    sel.set(key, val)
+    
     // Propagate to flights
     for (const flight of this.flights) {
       if (flight.airline === airline.code) {
