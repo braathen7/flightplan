@@ -408,7 +408,7 @@ class Chart extends Component {
     // Generate HTML markup
     return `
       <div class="date">
-        <h2>${date.format('ll')}</h2>
+        <h2>${date.format('ll')}, ${date.format('dddd')}</h2>
       </div>
       ${engines.size === 0 ? '<div class="no-results"><p>Sorry, no awards found!</p></div>' : ''}
       ${[...engines.entries()].map(row => renderRow(row[1])).join('')}

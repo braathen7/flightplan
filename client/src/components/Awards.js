@@ -75,7 +75,7 @@ class Awards extends Component {
     // Generate HTML markup
     return (
       <div>
-        <h2>{date.format('ll')}</h2>
+        <h2>{date.format('ll')}, {date.format('dddd')}</h2>
         {tables.length === 0 && <div className="no-results"><p>No award flights were found.</p></div>}
         {tables.map(table => this.renderTable(table))}
       </div>
