@@ -391,7 +391,7 @@ export default class SearchStore {
           case 'showWaitlisted':
           case 'showNonSaver':
           case 'showMixedCabin':
-            val = (typeof val === 'boolean') ? val : defaultVal
+            val = (typeof val === 'boolean') ? val : (typeof val === 'string') ? (val.toLowerCase() == 'true') : defaultVal
             break
           case 'quantity':
             val = (typeof val === 'number') ? val : defaultVal
