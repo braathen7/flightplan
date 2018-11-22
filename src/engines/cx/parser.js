@@ -79,7 +79,7 @@ module.exports = class extends Parser {
       // Parse fare info from the flight ID string
       const fare = this.parseFare(flightIdString)
       const data = availability.get(fare.cabin)
-      if (!data) {
+      if (!data || isNaN(data.quantity)) {
         return
       }
 
@@ -161,7 +161,7 @@ module.exports = class extends Parser {
     }
 
     // If no availability for this cabin, move on
-    if (values.includes('N') || !cabinList.includes(cabin)) {
+    if (values.includes('N') || values.includes('X') || !cabinList.includes(cabin)) {
       return null // No availability
     }
 
