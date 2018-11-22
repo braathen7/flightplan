@@ -21,7 +21,7 @@ class Awards extends Component {
     }
 
     // Get date, and awards
-    const { engineInfo, legend, fromCity } = this.props.searchStore
+    const { engineInfo, legend, fromCity, direction } = this.props.searchStore
     const { date, awards } = data
 
     // Group awards into tables by engine
@@ -69,7 +69,10 @@ class Awards extends Component {
 
       // Add a table for each trip type
       tables.push({ engine, name, fares, type: 'Departures', awards: departures })
-      tables.push({ engine, name, fares, type: 'Arrivals', awards: arrivals })
+      if (direction !== 'oneway') {
+        // Don't bother showing the always empty Arrivals table for one way searches
+        tables.push({ engine, name, fares, type: 'Arrivals', awards: arrivals })
+      }
     }
 
     // Generate HTML markup
