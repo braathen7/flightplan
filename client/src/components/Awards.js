@@ -35,7 +35,7 @@ class Awards extends Component {
     // Group into arrivals and departures
     for (const [key, awards] of map) {
       map.set(key, awards.reduce((obj, x) => {
-        ((x.fromCity === fromCity) ? obj.departures : obj.arrivals).push(x)
+        ((x.fromCity.toLowerCase() === fromCity.toLowerCase()) ? obj.departures : obj.arrivals).push(x)
         return obj
       }, { departures: [], arrivals: [] }))
     }
