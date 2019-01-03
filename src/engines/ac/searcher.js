@@ -1,6 +1,8 @@
 const Searcher = require('../../Searcher')
 const { cabins } = require('../../consts')
 
+const { errors } = Searcher
+
 module.exports = class extends Searcher {
   async isLoggedIn (page) {
     await page.waitFor(
@@ -11,7 +13,7 @@ module.exports = class extends Searcher {
   async login (page, credentials) {
     const [ username, password ] = credentials
     if (!username || !password) {
-      throw new Searcher.Error(`Missing login credentials`)
+      throw new errors.MissingCredentials()
     }
 
     // Enter username and password
@@ -29,6 +31,16 @@ module.exports = class extends Searcher {
       await page.waitFor(250)
     }
     await this.clickAndWait('button.btn-primary.form-login-submit')
+
+    // Check for errors
+    const msgError = await this.textContent('div.form-msg-box.has-error span.form-msg')
+    if (msgError.includes('does not match our records')) {
+      throw new errors.InvalidCredentials()
+    }
+    const msgError2 = await this.textContent('div.form-msg-box.error.form-main-msg span.form-msg')
+    if (msgError2.includes('your account has been blocked')) {
+      throw new errors.BlockedAccount()
+    }
   }
 
   async search (page, query, results) {
@@ -85,15 +97,14 @@ module.exports = class extends Searcher {
       : 'travelFlightsRoundTripTab',
       { waitUntil: 'none' })
 
-    // Check if a new tab opened
-    await page.waitFor(2000)
-    const pages = await this.browser.pages()
-    const oldPage = page
-    page = pages[pages.length - 1]
-    this.page = page
-
     // Wait for results to load
     await this.monitor('.waiting-spinner-inner')
+
+    // Check for errors
+    const msgError = await this.textContent('div.errorContainer')
+    if (msgError.includes('itinerary is not eligible') || msgError.includes('itinerary cannot be booked')) {
+      throw new errors.InvalidRoute()
+    }
 
     // Wait up to 15 seconds to get the JSON from the browser itself
     let json = null
@@ -110,11 +121,5 @@ module.exports = class extends Searcher {
     // Obtain the JSON from the browser itself, which will have calculated prices
     await results.saveJSON('results', json)
     await results.screenshot('results')
-
-    // If a new tab was opened, we can close it now and restore the old page
-    if (page !== oldPage) {
-      this.page = oldPage
-      await page.close()
-    }
   }
 }

@@ -8,6 +8,8 @@ const applyEvasions = require('./evasions')
 const logging = require('./logging')
 const utils = require('./utils')
 
+const { errors } = Searcher
+
 class Engine {
   constructor (id, module) {
     const { searcher: Searcher, config } = module
@@ -33,6 +35,10 @@ class Engine {
     }
   }
 
+  _verbose () {
+    return ('verbose' in this._state) ? this._state.verbose : true
+  }
+
   async initialize (options = {}) {
     const { searcher, id, config } = this._state
     if (!searcher) {
@@ -51,12 +57,11 @@ class Engine {
       throttle = true,
       timeout = 90000,
       verbose = true,
-      cookies
+      cookies,
+      evasions = {}
     } = options
 
     // Save options
-    options = {
-    }
     this._state = {
       ...this._state,
       throttling: throttle ? {} : undefined,
@@ -69,12 +74,17 @@ class Engine {
       docker,
       timeout,
       verbose,
-      cookies
+      cookies,
+      evasions
     }
 
     // Setup browser and new page
     this._state.browser = await this._newBrowser()
-    this._state.page = await this._newPage()
+    const page = (await this._state.browser.pages())[0]
+    this._state.page = await this._newPage(page)
+
+    // Make sure we can access the website
+    await searcher.goto(config.searchURL, { referer: 'https://www.google.com/' })
   }
 
   async search (query) {
@@ -106,7 +116,7 @@ class Engine {
       this._state.lastError = err
 
       // Handle Searcher-specific errors differently
-      if (err.constructor.name !== 'SearcherError') {
+      if (err.name !== 'SearcherError') {
         throw err
       } else {
         results._setError(err)
@@ -165,6 +175,7 @@ class Engine {
   }
 
   async _newBrowser () {
+    // Create a new browser
     const { headless, args, proxy, docker, defaultViewport } = this._state
     if (proxy) {
       args.push(`--proxy-server=${proxy.server}`)
@@ -172,36 +183,46 @@ class Engine {
     if (docker) {
       args.push('--no-sandbox', '--headless', '--disable-dev-shm-usage')
     }
-    return puppeteer.launch({ headless, args, defaultViewport })
+    const browser = await puppeteer.launch({ headless, args, defaultViewport })
+
+    // Ensure that new tabs cannot be opened
+    await browser.on('targetcreated', (target) => {
+      if (target.type() === 'page') {
+        target.page().then(page => page.close())
+      }
+    })
+
+    return browser
   }
 
-  async _newPage () {
-    const { browser, config, timeout, proxy, cookies } = this._state
+  async _newPage (page) {
+    const { browser, timeout, proxy, cookies, evasions } = this._state
 
     // Create and setup the new page
-    const page = await browser.newPage()
+    if (!page) {
+      page = await browser.newPage()
+    }
     page.setDefaultNavigationTimeout(timeout)
-    await applyEvasions(page)
 
     // Authenticate proxy, if needed
-    const { username, password } = (proxy || {})
-    if (username || password) {
-      await page.authenticate({ username, password })
+    const { user, username, pass, password } = (proxy || {})
+    if (user || username || pass || password) {
+      await page.authenticate({ username: user || username, password: pass || password })
     }
+
+    // Apply evasions
+    await applyEvasions(page, evasions)
 
     // Set cookies if provided
     if (cookies) {
       await page.setCookie(...cookies)
     }
 
-    // Initialize document referrer by browsing to website's main page
-    await page.goto(config.homeURL)
-
     return page
   }
 
-  async _login (retries = 4) {
-    const { config, searcher, page, loginRequired, credentials, verbose } = this._state
+  async login (retries = 3) {
+    const { searcher, page, loginRequired, credentials, verbose } = this._state
 
     if (!loginRequired) {
       return true
@@ -226,17 +247,12 @@ class Engine {
         } else if (attempts === 2) {
           this.info('2nd login attempt...')
         } else if (attempts === 3) {
-          this.info('3rd login attempt...')
-        } else if (attempts === 4) {
-          this.warn('4th and final login attempt...')
+          this.info('3rd and final login attempt...')
         }
       }
 
       // Call Searcher.login()
       await searcher.login(page, credentials)
-
-      // Go to the search page (which will show us if we're logged in or not)
-      await searcher.goto(config.searchURL)
     }
   }
 
@@ -258,8 +274,8 @@ class Engine {
     await searcher.goto(config.searchURL)
 
     // Make sure we're logged in
-    if (!(await this._login())) {
-      throw new Searcher.Error('Login failure')
+    if (!(await this.login())) {
+      throw new errors.LoginFailed()
     }
 
     // Call the Searcher

@@ -3,6 +3,8 @@ const moment = require('moment-timezone')
 const Searcher = require('../../Searcher')
 const { cabins } = require('../../consts')
 
+const { errors } = Searcher
+
 module.exports = class extends Searcher {
   async isLoggedIn (page) {
     // Sometimes the page keeps reloading out from under us
@@ -17,7 +19,7 @@ module.exports = class extends Searcher {
   async login (page, credentials) {
     const [ username, password ] = credentials
     if (!username || !password) {
-      throw new Searcher.Error(`Missing login credentials`)
+      throw new errors.MissingCredentials()
     }
 
     // Enter username and password
@@ -37,6 +39,17 @@ module.exports = class extends Searcher {
 
     // Submit form
     await this.clickAndWait('#account-login div.form-login-wrapper button.btn-primary')
+
+    // Check for errors
+    const msgError = await this.textContent('div.global-error-wrap li')
+    if (msgError.includes('incorrect membership number or username')) {
+      throw new errors.InvalidCredentials()
+    } else if (msgError.includes('reactivate your account')) {
+      throw new errors.BlockedAccount()
+    }
+    if (await page.$('#captcha-container')) {
+      throw new errors.BotDetected()
+    }
   }
 
   async search (page, query, results) {
@@ -128,7 +141,7 @@ module.exports = class extends Searcher {
         this.checkResponse(response)
       }
 
-      // Get results for every single tab
+      // Get results for each tier
       let idx = 0
       let tabs = null
       while (true) {
@@ -147,7 +160,7 @@ module.exports = class extends Searcher {
             // If session becomes invalid, logout
             await this.logout()
           }
-          throw new Searcher.Error(msg)
+          throw new Searcher.Error(`Website returned error: ${msg}`)
         }
 
         // If there's a "No flights available" modal pop-up, dismiss it
@@ -214,35 +227,25 @@ module.exports = class extends Searcher {
   async findTabs () {
     const { page } = this
 
-    const tabs = await page.evaluate(() => {
+    const tabs = await page.evaluate((queryCabin) => {
       const types = [ 'standard', 'choice', 'tailored' ]
-      const cabins = [ 'economy', 'premium economy', 'business', 'first' ]
-
-      return [...document.querySelectorAll('#flightlistDept div.owl-item')]
+      const all = [...document.querySelectorAll('#flightlistDept div.owl-item')]
         .map((item, idx) => {
-          // Skip the active tab
-          if (item.querySelector('div.cabin-ticket-card-wrapper-outer.active')) {
-            return null
-          }
+          // Is the tab active?
+          const active = !!item.querySelector('div.cabin-ticket-card-wrapper-outer.active')
 
-          // Get the cabin and award type
-          const cabin = item.querySelector('span.cabin-class').textContent.trim().toLowerCase()
+          // Get the award type
           const type = item.querySelector('span.ticket-type').textContent.trim().toLowerCase()
 
           // Add the tab
           const sel = `div.owl-item:nth-of-type(${idx + 1}) div.cabin-ticket-card`
-          return { sel, cabin, type }
+          return { sel, active, type }
         })
-        .filter(x => !!x)
-        // Sort by award type, since routes with only partner flights will error out when choosing
-        // the non-standard award types
-        .sort((a, b) => {
-          const aType = types.indexOf(a.type)
-          const bType = types.indexOf(b.type)
-          const aCabin = cabins.indexOf(a.cabin)
-          const bCabin = cabins.indexOf(b.cabin)
-          return (aType === bType) ? (aCabin - bCabin) : aType - bType
-        })
+
+      // We only need one tab of each award type
+      return types
+        .map(type => all.find(x => x.type === type))
+        .filter(x => !!x && !x.active)
         .map(x => x.sel)
     })
 
@@ -389,6 +392,7 @@ module.exports = class extends Searcher {
 
     // Check if the desired link is not present
     try {
+      await page.waitFor(1000)
       await page.waitFor(selector, { visible: true, timeout: 5000 })
     } catch (err) {
       throw new Searcher.Error(`Failed to navigate calendar to date: ${date}`)

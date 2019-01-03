@@ -23,11 +23,13 @@ program
   .option('-q, --quantity <n>', `# of passengers traveling`, (x) => parseInt(x), 1)
   .option('-a, --account <n>', `Index of account to use`, (x) => parseInt(x), 0)
   .option('-h, --headless', `Run Chrome in headless mode`)
+  .option('-p, --proxy <server>', `Provide a proxy to use with Chome (server:port:user:pass)`)
   .option('-d, --docker', `Enable flags to make allow execution in docker environment`)
   .option('-P, --no-parser', `Do not parse search results`)
   .option('-r, --reverse', `Run queries in reverse chronological order`)
   .option('--terminate <n>', `Terminate search if no results are found for n successive days`, (x) => parseInt(x), 0)
   .option('--force', 'Re-run queries, even if already in the database')
+  .option('--debug [port]', 'Enable remote debugging port for headless Chrome (default: port 9222)', (x) => parseInt(x))
   .on('--help', () => {
     console.log('')
     console.log('  Supported Websites:')
@@ -87,11 +89,12 @@ function populateArguments (args) {
   args.docker = !!args.docker
   args.parser = !!args.parser
   args.force = !!args.force
+  args.debug = (args.debug === true) ? 9222 : args.debug
 }
 
 function validateArguments (args) {
   // Validate arguments
-  if (!fp.supported(args.website)) {
+  if (!fp.supported(args.website || '')) {
     fatal(`Unsupported airline website to search: ${args.website}`)
   }
   if (!(args.cabin in fp.cabins)) {
@@ -106,7 +109,7 @@ function validateArguments (args) {
   if (args.end < args.start) {
     fatal(`Invalid date range: ${args.start} - ${args.end}`)
   }
-  if (args.quantity < 0) {
+  if (args.quantity < 1) {
     fatal(`Invalid quantity: ${args.quantity}`)
   }
   if (args.account < 0) {
@@ -137,6 +140,20 @@ function validateArguments (args) {
   if (args.end > b) {
     engine.warn(`Can only search up to ${maxDays} day(s) from today, adjusting end of search range to: ${b}`)
     args.end = b
+  }
+
+  // Parse proxy
+  if (args.proxy) {
+    const arr = args.proxy.split(':')
+    if (arr.length === 0 || arr.length > 4) {
+      fatal(`Unrecognized proxy format: ${args.proxy}`)
+    }
+    if (arr.length <= 2) {
+      args.proxy = { server: arr.join(':') }
+    } else {
+      const [ user, pass ] = arr.splice(-2)
+      args.proxy = { server: arr.join(':'), user, pass }
+    }
   }
 }
 
@@ -276,7 +293,16 @@ function redundantSegment (routeMap, query) {
 }
 
 const main = async (args) => {
-  const { start: startDate, end: endDate, headless, docker, parser: parse, terminate } = args
+  const {
+    start: startDate,
+    end: endDate,
+    headless,
+    proxy,
+    docker,
+    parser: parse,
+    terminate,
+    debug: debugPort
+  } = args
 
   // Create engine
   const engine = fp.new(args.website)
@@ -291,6 +317,12 @@ const main = async (args) => {
     // Create database if necessary, and then open
     db.migrate()
     db.open()
+
+    // Setup engine options
+    const options = { headless, proxy, docker }
+    if (debugPort) {
+      options.args = [ `--remote-debugging-port=${debugPort}` ]
+    }
 
     // Generate queries
     const days = timetable.diff(startDate, endDate) + 1
@@ -323,7 +355,7 @@ const main = async (args) => {
       if (!initialized) {
         const credentials = loginRequired
           ? accounts.getCredentials(id, args.account) : null
-        await engine.initialize({ credentials, headless, docker })
+        await engine.initialize({ ...options, credentials })
         initialized = true
       }
 
@@ -352,6 +384,7 @@ const main = async (args) => {
             engine.error(`Could not parse awards: ${results.error}`)
             continue
           }
+          engine.success(`Found: ${awards.length} awards, ${results.flights.length} flights`)
         } catch (err) {
           engine.error('Unexpected error occurred while parsing!')
           console.error(err)

@@ -200,6 +200,7 @@ An Engine is used to execute a flight award search. Each Engine instance is asso
 
 #### Methods
 - [engine.initialize(*options*)](#engine-initialize-options)
+- [engine.login(*retries*)](#engine-login-retries)
 - [engine.search(*query*)](#engine-search-query)
 - [engine.getCookies()](#engine-getcookies)
 - [engine.close()](#engine-close)
@@ -235,6 +236,13 @@ An Engine is used to execute a flight award search. Each Engine instance is asso
 - returns: <[Promise]>
 
 Initializes the Engine (this primarily involves launching the Chromium instance associated with this Engine). This method must be called, and the returned [Promise] must finish resolving, before the [`search()`](engine-search-query) method can be called.
+
+### engine.login(*retries*)
+
+- `retries` <[number]> Optional number of time to attempt to login before giving up, defaults to `3`
+- returns: <[Promise]<[boolean]>>
+
+Logs in to the airline website using the credentials provided to [`initialize()`](engine-initialize-options). It is not necessary to manually call this method, since it will be automatically called during searching if a user is ever detected to not be signed in. Return a [Promise] that resolves to `true` if login was successful.
 
 ### engine.search(*query*)
 
@@ -529,6 +537,10 @@ The only method you must define in your Searcher subclass is called `search()`. 
 
 > The Searcher class is used to allow developers to add support for a new airline website to Flightplan, otherwise it is not normally exposed to end-users of the API.
 
+#### Class Properties
+- [static Searcher.Error](#static-searcher-error)
+- [static Searcher.errors](#static-searcher-errors)
+
 #### Lifecycle Methods
 - [searcher.isLoggedIn(*page*)](#searcher-isloggedin-page)
 - [searcher.login(*page*, *credentials*)](#searcher-login-page-credentials)
@@ -561,6 +573,27 @@ The only method you must define in your Searcher subclass is called `search()`. 
 - [searcher.config](#searcher-config)
 - [searcher.browser](#searcher-browser)
 - [searcher.page](#searcher-page)
+
+### static Searcher.Error
+
+- extends: <[Error]>
+
+Returns the `SearcherError` custom error class, which is emitted whenever a search fails due to circumstances beyond the control of the Searcher. For example, the airline website may be down or unresponsive.
+
+### static Searcher.errors
+
+- returns: <[Object]>
+
+A helper method that returns custom errors which extend `SearcherError`. These are useful across Searcher's, to signal common failure scenarios. Possible custom errors include:
+
+- `BlockedAccessError` - Access to the web page blocked by website
+- `BlockedAccountError` - Account has been blocked by website
+- `BotDetectedError` - Suspicious activity detected by website
+- `LoginFailedError` - Failed to login to website
+- `MissingCredentialsError` - Missing login credentials
+- `InvalidCredentialsError` - Invalid login credentials
+- `InvalidRouteError` - Airline and its partners do not fly this route
+- `InvalidCabinError` - Selected cabin is not available for this route
 
 ### searcher.isLoggedIn(*page*)
 
@@ -1064,7 +1097,6 @@ Results is used to contain the results of a search. It is created by [Engine], p
 - [results.ok](#results-ok)
 - [results.error](#results-error)
 - [results.engine](#results-engine)
-- [results.invalid](#results-invalid)
 - [results.query](#results-query)
 - [results.assets](#results-query)
 - [results.awards](#results-awards)
@@ -1189,12 +1221,6 @@ If the [Searcher] or [Parser] encounter an error, due to a fault beyond its own 
 - returns: <[string]>
 
 Returns the ID of the [Engine] which created this Results instance.
-
-### results.invalid
-
-- returns: <[boolean]> `true` if the [Query] was considered invalid, based on the search results.
-
-Most invalid queries are discovered before the [Searcher] ever runs, but in some scenarios this might not be possible. For exampe, the airline website may respond that the queried route is not supported. In these cases, `results.error` will be set, in addition to the `invalid` returning `true`, indicating that all similar queries are likely to fail.
 
 ### results.query
 

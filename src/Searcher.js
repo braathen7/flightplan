@@ -1,15 +1,60 @@
 const logging = require('./logging')
 const utils = require('./utils')
 
+// Custom Searcher errors
 class SearcherError extends Error {}
+class BlockedAccessError extends SearcherError {
+  constructor () { super('BLOCKED_ACCESS: Access to the web page blocked by website') }
+}
+class BlockedAccountError extends SearcherError {
+  constructor () { super('BLOCKED_ACCOUNT: Account has been blocked by website') }
+}
+class BotDetectedError extends SearcherError {
+  constructor () { super('BOT_DETECTED: Suspicious activity detected by website') }
+}
+class LoginFailedError extends SearcherError {
+  constructor () { super('LOGIN_FAILED: Failed to login to website') }
+}
+class MissingCredentialsError extends SearcherError {
+  constructor () { super('MISSING_CREDENTIALS: Missing login credentials') }
+}
+class InvalidCredentialsError extends SearcherError {
+  constructor () { super('INVALID_CREDENTIALS: Invalid login credentials') }
+}
+class InvalidRouteError extends SearcherError {
+  constructor () { super('INVALID_ROUTE: Airline and its partners do not fly this route') }
+}
+class InvalidCabinError extends SearcherError {
+  constructor () { super('INVALID_CABIN: Selected cabin is not available for this route') }
+}
+
+// Create a mapping of all custom errors
+const allErrors = Object.freeze({
+  BlockedAccess: BlockedAccessError,
+  BlockedAccount: BlockedAccountError,
+  BotDetected: BotDetectedError,
+  LoginFailed: LoginFailedError,
+  MissingCredentials: MissingCredentialsError,
+  InvalidCredentials: InvalidCredentialsError,
+  InvalidRoute: InvalidRouteError,
+  InvalidCabin: InvalidCabinError
+})
 
 class Searcher {
   static get Error () {
     return SearcherError
   }
 
+  static get errors () {
+    return allErrors
+  }
+
   constructor (engine) {
     this._engine = engine
+  }
+
+  _verbose () {
+    return this._engine._verbose()
   }
 
   validate (query) {}
@@ -35,22 +80,28 @@ class Searcher {
 
   checkResponse (response) {
     // If no response, that's usually OK (data was likely pre-fetched)
-    if (response) {
-      // 304's (cached response) are OK too
-      if (!response.ok() && response.status() !== 304) {
-        // Trigger an immediate cool-down period
-        const { throttling } = this._engine._state
-        if (throttling) {
-          const { checkpoint = null } = throttling
-          if (checkpoint) {
-            checkpoint.remaining = 0
-          }
-        }
-
-        // Throw SearchError
-        throw new SearcherError(`Received non-OK HTTP Status Code: ${response.status()} (${response.url()})`)
-      }
+    if (!response) {
+      return
     }
+
+    // 304's (cached response) are OK too
+    if (response.ok() || response.status() === 304) {
+      return
+    }
+
+    // Check if access has been blocked
+    if (response.status() === 403) {
+      // Trigger an immediate cool-down period
+      const { throttling } = this._engine._state
+      if (throttling) {
+        const { checkpoint = null } = throttling
+        if (checkpoint) {
+          checkpoint.remaining = 0
+        }
+      }
+      throw errors.ACCESS_BLOCKED
+    }
+    throw new SearcherError(`Received non-OK HTTP Status Code: ${response.status()} (${response.url()})`)
   }
 
   clear (selector) {
@@ -111,15 +162,11 @@ class Searcher {
     }, values)
   }
 
-  async goto (url) {
+  async goto (url, options = {}) {
     const { page, config } = this._engine
     const { waitUntil } = config
-    try {
-      const response = await page.goto(url, { waitUntil })
-      this.checkResponse(response)
-    } catch (err) {
-      throw new SearcherError(`goto(${url}): ${err.message}`)
-    }
+    const response = await page.goto(url, { waitUntil, ...options })
+    this.checkResponse(response)
   }
 
   async monitor (selector, timeout1 = 2000, timeout2 = 300000) {
@@ -180,7 +227,11 @@ class Searcher {
     try {
       // Create initial array of promises that need to resolve
       const promises = [
-        page.evaluate((name) => { document.forms[name].submit() }, name)
+        page.evaluate((name) => {
+          const form = document.forms[name]
+          form.target = '_self' // Ensure form doesn't open up new tab
+          form.submit()
+        }, name)
       ]
       if (waitUntil !== 'none') {
         promises.push(page.waitForNavigation({ waitUntil }))

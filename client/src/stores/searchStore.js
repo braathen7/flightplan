@@ -2,23 +2,10 @@ import { observable, computed, action, autorun } from 'mobx'
 import moment from 'moment'
 import URLSearchParams from 'url-search-params'
 
-import { strcmp } from '../lib/utilities'
+import * as utils from '../lib/utilities'
 
 function flightKey(flight) {
   return JSON.stringify(flight, ['airline', 'flight', 'aircraft'])
-}
-
-function parseSettingToBoolean(val, defaultVal) {
-  if (typeof val === 'boolean') return val;
-  if (typeof val !== 'string') return defaultVal;
-  return val.toLowerCase() === 'true';
-}
-
-function parseSettingToInteger(val, defaultVal) {
-  if (typeof val === 'number') return val;
-  if (typeof val !== 'string') return defaultVal;
-  const num = parseInt(val, 10);
-  return (isNaN(num)) ? defaultVal : num;
 }
 
 export default class SearchStore {
@@ -167,7 +154,7 @@ export default class SearchStore {
       }
       map.set([f.airline, f.flight, f.aircraft].join('|'), f)
     }
-    return [...map.values()].sort((x, y) => strcmp(x.flight, y.flight, x.aircraft, y.aircraft))
+    return [...map.values()].sort((x, y) => utils.strcmp(x.flight, y.flight, x.aircraft, y.aircraft))
   }
 
   @computed get airlines () {
@@ -176,7 +163,7 @@ export default class SearchStore {
     ret = [...ret.values()].map(x => (
       { code: x, name: airlineInfo.has(x) ? airlineInfo.get(x).name : x }
     ))
-    ret.sort((x, y) => strcmp(x.name, y.name))
+    ret.sort((x, y) => utils.strcmp(x.name, y.name))
     return ret
   }
 
@@ -210,7 +197,7 @@ export default class SearchStore {
 
     // Sort airlines and fares, and assign colors
     let idx = 0
-    const legend = [...map.values()].sort((x, y) => strcmp(x.name, y.name))
+    const legend = [...map.values()].sort((x, y) => utils.strcmp(x.name, y.name))
     for (const data of legend) {
       // Generate sorted list of awards, based on search results
       const { fares, awards } = data
@@ -380,8 +367,8 @@ export default class SearchStore {
       direction: 'roundtrip',
       cabinClasses: ['first'],
       showMixedCabin: true,
-      startDate: moment().add(1, 'd'),
-      endDate: moment().add(1, 'y')
+      startDate: moment().startOf('day'),
+      endDate: moment().startOf('day').add(1, 'year')
     }
     for (const [key, defaultVal] of Object.entries(defaults)) {
       let val = localStorage.getItem(key)
@@ -395,13 +382,13 @@ export default class SearchStore {
           case 'showWaitlisted':
           case 'showNonSaver':
           case 'showMixedCabin':
-            val = (typeof val === 'boolean') ? val : (typeof val === 'string') ? (val.toLowerCase() == 'true') : defaultVal
+            val = utils.coerceBoolean(val, defaultVal)
             break
           case 'quantity':
-            val = parseSettingToInteger(val, defaultVal);
+            val = utils.coerceNumber(val, defaultVal);
             break
           case 'maxStops':
-            val = parseSettingToInteger(val, defaultVal);
+            val = utils.coerceNumber(val, defaultVal);
             break
           case 'direction':
             val = ['roundtrip', 'oneway'].includes(val) ? val : defaultVal
@@ -414,9 +401,12 @@ export default class SearchStore {
             }
             break
           case 'startDate':
+            val = moment(val, 'YYYY-MM-DD', true)
+            val = (val.isValid() && val.isSameOrAfter(defaultVal)) ? val : defaultVal
+            break
           case 'endDate':
             val = moment(val, 'YYYY-MM-DD', true)
-            val = val.isValid() ? val : defaultVal
+            val = (val.isValid() && val.isSameOrBefore(defaultVal)) ? val : defaultVal
             break
           default:
             val = defaultVal
@@ -428,8 +418,8 @@ export default class SearchStore {
     }
   }
 
-  saveSettings (query) {
-    const values = [
+  saveSettings () {
+    [
       'fromCity',
       'toCity',
       'showPartner',
@@ -442,11 +432,8 @@ export default class SearchStore {
       'showMixedCabin',
       'startDate',
       'endDate'
-    ].reduce((v, key) => {
-      v[key] = this[key]
-      return v
-    }, {})
-    for (let [key, val] of Object.entries(values)) {
+    ].forEach((key) => {
+      let val = this[key]
       switch (key) {
         case 'cabinClasses':
           val = JSON.stringify(val)
@@ -458,6 +445,6 @@ export default class SearchStore {
         default:
       }
       localStorage.setItem(key, val)
-    }
+    })
   }
 }
